@@ -1,0 +1,145 @@
+name: Issue Triage Agentic Workflow
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage_issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Analyze and triage issue
+        uses: github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const issueBody = issue.body || '';
+            const issueTitle = issue.title || '';
+            
+            // Helper function to add labels
+            async function addLabels(labels) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels
+              });
+            }
+            
+            // Helper function to create a comment
+            async function createComment(body) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: body
+              });
+            }
+            
+            // 1. TYPE CLASSIFICATION
+            const issueText = (issueTitle + ' ' + issueBody).toLowerCase();
+            const typeLabels = [];
+            
+            if (issueText.includes('bug') || issueText.includes('broken') || issueText.includes('error') || issueText.includes('crash')) {
+              typeLabels.push('bug');
+            } else if (issueText.includes('feature') || issueText.includes('enhancement') || issueText.includes('request')) {
+              typeLabels.push('enhancement');
+            } else if (issueText.includes('doc') || issueText.includes('documentation')) {
+              typeLabels.push('documentation');
+            } else {
+              typeLabels.push('needs-triage');
+            }
+            
+            // 2. PRIORITY CLASSIFICATION
+            const priorityLabels = [];
+            
+            if (issueText.includes('critical') || issueText.includes('urgent') || issueText.includes('blocking')) {
+              priorityLabels.push('priority-high');
+            } else if (issueText.includes('low') || issueText.includes('minor')) {
+              priorityLabels.push('priority-low');
+            } else {
+              priorityLabels.push('priority-medium');
+            }
+            
+            // 3. CHECK FOR DUPLICATE ISSUES
+            const recentIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 50,
+              sort: 'created',
+              direction: 'desc'
+            });
+            
+            let potentialDuplicate = null;
+            const keywordThreshold = 3;
+            
+            for (const otherIssue of recentIssues.data) {
+              if (otherIssue.number === issue.number) continue;
+              
+              const otherText = (otherIssue.title + ' ' + (otherIssue.body || '')).toLowerCase();
+              const titleWords = issueTitle.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+              let matchCount = 0;
+              
+              for (const word of titleWords) {
+                if (otherText.includes(word)) matchCount++;
+              }
+              
+              if (matchCount >= keywordThreshold) {
+                potentialDuplicate = otherIssue;
+                break;
+              }
+            }
+            
+            // 4. CHECK FOR INCOMPLETE DESCRIPTIONS
+            const descriptionIssues = [];
+            
+            if (!issueBody || issueBody.trim().length < 20) {
+              descriptionIssues.push('Description is too brief');
+            }
+            
+            if (!issueText.includes('expected') && typeLabels.includes('bug')) {
+              descriptionIssues.push('Missing expected behavior description');
+            }
+            
+            if (!issueText.includes('reproduction') && !issueText.includes('reproduce') && typeLabels.includes('bug')) {
+              descriptionIssues.push('Missing reproduction steps');
+            }
+            
+            // 5. APPLY LABELS
+            const allLabels = [...typeLabels, ...priorityLabels];
+            if (allLabels.length > 0) {
+              await addLabels(allLabels);
+            }
+            
+            // 6. CREATE COMMENTS FOR ISSUES
+            if (potentialDuplicate) {
+              const duplicateComment = `⚠️ **Potential Duplicate Detected**\n\nThis issue might be a duplicate of #${potentialDuplicate.number}: "${potentialDuplicate.title}"\n\nPlease review and close if this is indeed a duplicate.`;
+              await createComment(duplicateComment);
+            }
+            
+            if (descriptionIssues.length > 0) {
+              const clarifyComment = `❓ **Description Needs Clarification**\n\nTo help us better understand and resolve this issue, please provide the following:\n\n${descriptionIssues.map(issue => `- [ ] ${issue}`).join('\n')}\n\nThank you!`;
+              await createComment(clarifyComment);
+            } else if (!potentialDuplicate && typeLabels.includes('bug')) {
+              const acknowledgeComment = `✅ Thanks for the detailed report! This issue has been labeled as \`${typeLabels.join(', ')}\` with \`${priorityLabels.join(', ')}\` priority. Our team will review it shortly.`;
+              await createComment(acknowledgeComment);
+            }
+            
+            console.log(`Triage complete for issue #${issue.number}`);
+            console.log(`Labels applied: ${allLabels.join(', ')}`);
+            if (potentialDuplicate) console.log(`Potential duplicate found: #${potentialDuplicate.number}`);
+            if (descriptionIssues.length > 0) console.log(`Description issues: ${descriptionIssues.join(', ')}`);
