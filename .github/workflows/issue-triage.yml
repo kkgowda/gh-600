@@ -21,7 +21,7 @@ jobs:
           node-version: '18'
 
       - name: Analyze and triage issue
-        uses: github-script@v7
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -127,12 +127,12 @@ jobs:
             
             // 6. CREATE COMMENTS FOR ISSUES
             if (potentialDuplicate) {
-              const duplicateComment = `⚠️ **Potential Duplicate Detected**\n\nThis issue might be a duplicate of #${potentialDuplicate.number}: "${potentialDuplicate.title}"\n\nPlease review and close if this is indeed a duplicate.`;
+              const duplicateComment = `⚠️ **Potential Duplicate Detected**\n\nThis issue might be a duplicate of #${potentialDuplicate.number}: "${potentialDuplicate.title}"\n\nPlease review and let us know if this is indeed a duplicate.`;
               await createComment(duplicateComment);
             }
             
             if (descriptionIssues.length > 0) {
-              const clarifyComment = `❓ **Description Needs Clarification**\n\nTo help us better understand and resolve this issue, please provide the following:\n\n${descriptionIssues.map(issue => `- [ ] ${issue}`).join('\n')}\n\nThank you!`;
+              const clarifyComment = `❓ **Description Needs Clarification**\n\nTo help us better understand and resolve this issue, please provide the following:\n\n${descriptionIssues.map(issue => `- ${issue}`).join('\n')}`;
               await createComment(clarifyComment);
             } else if (!potentialDuplicate && typeLabels.includes('bug')) {
               const acknowledgeComment = `✅ Thanks for the detailed report! This issue has been labeled as \`${typeLabels.join(', ')}\` with \`${priorityLabels.join(', ')}\` priority. Our team will review it shortly.`;
